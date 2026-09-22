@@ -1,0 +1,17 @@
+# Environment variables / secrets
+.env
+
+# Local submission cache
+.submission_cache.json
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
