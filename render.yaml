@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: leetcode-auto-archive
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    autoDeploy: true
+    envVars:
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_REPO
+        value: nikil3406/LeetCode
+      - key: GITHUB_BRANCH
+        value: main
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.6-flash
+      - key: ARCHIVE_WEBHOOK_TOKEN
+        sync: false
