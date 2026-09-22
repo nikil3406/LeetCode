@@ -8,6 +8,7 @@ from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
+from google import genai
 
 
 # ============================================================
@@ -27,6 +28,9 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "nikil3406/LeetCode")
 GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main")
 
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
 CACHE_FILE = Path(".submission_cache.json")
 
 
@@ -40,14 +44,19 @@ def validate_environment():
         "LEETCODE_CSRF_TOKEN": LEETCODE_CSRF_TOKEN,
         "GITHUB_TOKEN": GITHUB_TOKEN,
         "GITHUB_REPO": GITHUB_REPO,
+        "GEMINI_API_KEY": GEMINI_API_KEY,
     }
 
-    missing = [name for name, value in required.items() if not value]
+    missing = [
+        name for name, value in required.items()
+        if not value
+    ]
 
     if missing:
         print("\nERROR: Missing environment variables:")
         for name in missing:
             print(f"  - {name}")
+
         print("\nCheck your .env file.")
         sys.exit(1)
 
@@ -160,8 +169,7 @@ def get_question_details(slug):
 
 def get_all_submissions(question_slug):
     """
-    Fetch all submissions visible in the user's LeetCode
-    submission history for the specified question.
+    Fetch the user's submissions for a specific problem.
     """
 
     query = """
@@ -226,8 +234,7 @@ def get_all_submissions(question_slug):
 
 def get_submission_details(submission_id):
     """
-    Fetch actual submitted source code and detailed metadata.
-    This uses the current submissionDetails GraphQL query.
+    Fetch the actual submitted source code and metadata.
     """
 
     query = """
@@ -304,7 +311,7 @@ def get_submission_details(submission_id):
 
 
 # ============================================================
-# Cache helpers
+# Cache
 # ============================================================
 
 def load_cache():
@@ -322,138 +329,27 @@ def load_cache():
         return data
 
     except (json.JSONDecodeError, OSError):
-        print("WARNING: Could not read cache. Starting a new cache.")
+        print("WARNING: Could not read cache. Starting fresh.")
         return {"submissions": {}}
 
 
 def save_cache(cache):
     with CACHE_FILE.open("w", encoding="utf-8") as file:
-        json.dump(cache, file, indent=2, ensure_ascii=False)
+        json.dump(
+            cache,
+            file,
+            indent=2,
+            ensure_ascii=False,
+        )
 
 
 # ============================================================
-# GitHub helpers
+# Gemini AI
 # ============================================================
-
-def github_headers():
-    return {
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "leetcode-to-github-archiver",
-    }
-
-
-def github_get_file(path):
-    url = f"{GITHUB_API_URL}/repos/{GITHUB_REPO}/contents/{path}"
-
-    response = requests.get(
-        url,
-        headers=github_headers(),
-        params={"ref": GITHUB_BRANCH},
-        timeout=30,
-    )
-
-    if response.status_code == 404:
-        return None
-
-    response.raise_for_status()
-    return response.json()
-
-
-def github_create_or_update_file(path, content, commit_message):
-    url = f"{GITHUB_API_URL}/repos/{GITHUB_REPO}/contents/{path}"
-
-    encoded = base64.b64encode(
-        content.encode("utf-8")
-    ).decode("utf-8")
-
-    payload = {
-        "message": commit_message,
-        "content": encoded,
-        "branch": GITHUB_BRANCH,
-    }
-
-    existing = github_get_file(path)
-
-    if existing:
-        payload["sha"] = existing["sha"]
-
-    response = requests.put(
-        url,
-        headers=github_headers(),
-        json=payload,
-        timeout=30,
-    )
-
-    response.raise_for_status()
-    return response.json()
-
-
-# ============================================================
-# Formatting helpers
-# ============================================================
-
-LANGUAGE_EXTENSIONS = {
-    "python": ".py",
-    "python3": ".py",
-    "java": ".java",
-    "cpp": ".cpp",
-    "c": ".c",
-    "csharp": ".cs",
-    "javascript": ".js",
-    "typescript": ".ts",
-    "kotlin": ".kt",
-    "swift": ".swift",
-    "golang": ".go",
-    "go": ".go",
-    "rust": ".rs",
-    "ruby": ".rb",
-    "php": ".php",
-    "scala": ".scala",
-    "dart": ".dart",
-    "mysql": ".sql",
-    "mssql": ".sql",
-    "oraclesql": ".sql",
-    "postgresql": ".sql",
-}
-
-
-def get_extension(language):
-    language = (language or "").lower().strip()
-    return LANGUAGE_EXTENSIONS.get(language, ".txt")
-
-
-def format_timestamp(timestamp):
-    if timestamp is None or timestamp == "":
-        return "Unknown"
-
-    try:
-        value = int(timestamp)
-        return datetime.fromtimestamp(
-            value,
-            tz=timezone.utc,
-        ).strftime("%Y-%m-%d %H:%M:%S UTC")
-    except (TypeError, ValueError, OSError):
-        return str(timestamp)
-
-
-def safe_folder_name(question_number, title):
-    number = str(question_number).zfill(4)
-
-    slug = re.sub(
-        r"[^a-z0-9]+",
-        "-",
-        title.lower(),
-    ).strip("-")
-
-    return f"{number}-{slug}"
-
 
 def strip_html(html):
     """
-    Convert basic HTML from LeetCode's problem description
-    into readable Markdown-ish text.
+    Convert LeetCode HTML problem content to readable text.
     """
 
     if not html:
@@ -548,20 +444,6 @@ def strip_html(html):
     )
 
     text = re.sub(
-        r"<h[1-6][^>]*>(.*?)</h[1-6]>",
-        r"### \1\n",
-        text,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-
-    text = re.sub(
-        r"<img[^>]*alt=['\"]([^'\"]*)['\"][^>]*>",
-        r"![\1]",
-        text,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-
-    text = re.sub(
         r"<[^>]+>",
         "",
         text,
@@ -587,11 +469,194 @@ def strip_html(html):
     return text.strip()
 
 
+def generate_ai_explanation(problem, submission, details):
+    """
+    Use Gemini to explain the exact submitted code.
+    """
+
+    code = details.get("code") or ""
+
+    if not code.strip():
+        return ""
+
+    language = (
+        details.get("lang", {}).get("name")
+        or submission.get("lang")
+        or "unknown"
+    )
+
+    description = strip_html(
+        problem.get("content", "")
+    )
+
+    prompt = f"""
+You are explaining a student's actual LeetCode submission.
+
+Analyze the submitted code exactly as written.
+
+IMPORTANT RULES:
+- Do NOT rewrite the code.
+- Do NOT provide replacement code.
+- Do NOT invent an algorithm that the code does not use.
+- Explain the actual algorithm and data structures used.
+- If the code is inefficient, explain what it actually does.
+- The explanation should be useful for future revision.
+- Keep it concise but technically accurate.
+- Do not use Markdown code fences.
+
+Return exactly these four sections:
+
+INTUITION
+Explain the core idea behind this particular solution in 2-5 sentences.
+
+APPROACH
+Give a numbered step-by-step explanation of what the submitted code does.
+
+WHY IT WORKS
+Explain why the algorithm produces the required result.
+
+COMPLEXITY
+State the time complexity and space complexity and briefly explain them.
+
+Problem:
+{problem.get("title", "")}
+
+Problem description:
+{description}
+
+Programming language:
+{language}
+
+Actual submitted code:
+{code}
+"""
+
+    client = genai.Client(
+        api_key=GEMINI_API_KEY
+    )
+
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+    )
+
+    explanation = (
+        getattr(response, "text", None) or ""
+    ).strip()
+
+    if not explanation:
+        raise RuntimeError(
+            "Gemini returned an empty explanation."
+        )
+
+    return explanation
+
+
 # ============================================================
-# Submission file
+# Language / file formatting
 # ============================================================
 
-def create_submission_file(submission, details):
+LANGUAGE_EXTENSIONS = {
+    "python": ".py",
+    "python3": ".py",
+    "java": ".java",
+    "cpp": ".cpp",
+    "c": ".c",
+    "csharp": ".cs",
+    "javascript": ".js",
+    "typescript": ".ts",
+    "kotlin": ".kt",
+    "swift": ".swift",
+    "golang": ".go",
+    "go": ".go",
+    "rust": ".rs",
+    "ruby": ".rb",
+    "php": ".php",
+    "scala": ".scala",
+    "dart": ".dart",
+    "mysql": ".sql",
+    "mssql": ".sql",
+    "oraclesql": ".sql",
+    "postgresql": ".sql",
+    "sql": ".sql",
+}
+
+
+def get_extension(language):
+    language = (language or "").lower().strip()
+    return LANGUAGE_EXTENSIONS.get(language, ".txt")
+
+
+def comment_prefix(language):
+    language = (language or "").lower().strip()
+
+    hash_languages = {
+        "python",
+        "python3",
+        "ruby",
+        "bash",
+        "shell",
+        "perl",
+    }
+
+    sql_languages = {
+        "mysql",
+        "mssql",
+        "oraclesql",
+        "postgresql",
+        "sql",
+    }
+
+    if language in hash_languages:
+        return "hash"
+
+    if language in sql_languages:
+        return "sql"
+
+    return "cstyle"
+
+
+def comment_text(text, language):
+    """
+    Convert AI explanation to comments appropriate for
+    the submitted programming language.
+    """
+
+    kind = comment_prefix(language)
+    lines = text.splitlines()
+
+    if kind == "hash":
+        return "\n".join(
+            "# " + line if line else "#"
+            for line in lines
+        )
+
+    if kind == "sql":
+        return "\n".join(
+            "-- " + line if line else "--"
+            for line in lines
+        )
+
+    body = "\n".join(
+        " * " + line if line else " *"
+        for line in lines
+    )
+
+    return "/*\n" + body + "\n */"
+
+
+def create_submission_file(
+    submission,
+    details,
+    explanation,
+):
+    """
+    Create a source file containing:
+    1. Submission metadata
+    2. Gemini-generated explanation
+    3. The exact original submitted code
+    """
+
     code = details.get("code") or ""
 
     language = (
@@ -625,20 +690,185 @@ def create_submission_file(submission, details):
 
     submission_id = submission.get("id")
 
-    header = (
-        "# LeetCode Submission\n"
-        f"# Submission ID: {submission_id}\n"
-        f"# Status: {status}\n"
-        f"# Language: {language}\n"
-        f"# Runtime: {runtime}\n"
-        f"# Memory: {memory}\n"
-        f"# Submitted: {format_timestamp(timestamp)}\n"
-        "#\n"
-        "# This file contains the actual code submitted to LeetCode.\n"
-        "#\n\n"
+    metadata = (
+        f"LeetCode Submission\n"
+        f"Submission ID: {submission_id}\n"
+        f"Status: {status}\n"
+        f"Language: {language}\n"
+        f"Runtime: {runtime}\n"
+        f"Memory: {memory}\n"
+        f"Submitted: {format_timestamp(timestamp)}"
     )
 
-    return header + code.rstrip() + "\n"
+    kind = comment_prefix(language)
+
+    if kind == "hash":
+        metadata_block = "\n".join(
+            "# " + line
+            for line in metadata.splitlines()
+        )
+
+        explanation_block = comment_text(
+            explanation,
+            language,
+        )
+
+        return (
+            metadata_block
+            + "\n#\n"
+            + explanation_block
+            + "\n\n"
+            + code.rstrip()
+            + "\n"
+        )
+
+    if kind == "sql":
+        metadata_block = "\n".join(
+            "-- " + line
+            for line in metadata.splitlines()
+        )
+
+        explanation_block = comment_text(
+            explanation,
+            language,
+        )
+
+        return (
+            metadata_block
+            + "\n--\n"
+            + explanation_block
+            + "\n\n"
+            + code.rstrip()
+            + "\n"
+        )
+
+    metadata_block = (
+        "/*\n"
+        + "\n".join(
+            " * " + line
+            for line in metadata.splitlines()
+        )
+        + "\n */"
+    )
+
+    explanation_block = comment_text(
+        explanation,
+        language,
+    )
+
+    return (
+        metadata_block
+        + "\n"
+        + explanation_block
+        + "\n\n"
+        + code.rstrip()
+        + "\n"
+    )
+
+
+# ============================================================
+# GitHub helpers
+# ============================================================
+
+def github_headers():
+    return {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "leetcode-to-github-archiver",
+    }
+
+
+def github_get_file(path):
+    url = (
+        f"{GITHUB_API_URL}/repos/"
+        f"{GITHUB_REPO}/contents/{path}"
+    )
+
+    response = requests.get(
+        url,
+        headers=github_headers(),
+        params={"ref": GITHUB_BRANCH},
+        timeout=30,
+    )
+
+    if response.status_code == 404:
+        return None
+
+    response.raise_for_status()
+
+    return response.json()
+
+
+def github_create_or_update_file(
+    path,
+    content,
+    commit_message,
+):
+    url = (
+        f"{GITHUB_API_URL}/repos/"
+        f"{GITHUB_REPO}/contents/{path}"
+    )
+
+    encoded = base64.b64encode(
+        content.encode("utf-8")
+    ).decode("utf-8")
+
+    payload = {
+        "message": commit_message,
+        "content": encoded,
+        "branch": GITHUB_BRANCH,
+    }
+
+    existing = github_get_file(path)
+
+    if existing:
+        payload["sha"] = existing["sha"]
+
+    response = requests.put(
+        url,
+        headers=github_headers(),
+        json=payload,
+        timeout=30,
+    )
+
+    response.raise_for_status()
+
+    return response.json()
+
+
+# ============================================================
+# Formatting
+# ============================================================
+
+def format_timestamp(timestamp):
+    if timestamp is None or timestamp == "":
+        return "Unknown"
+
+    try:
+        value = int(timestamp)
+
+        return datetime.fromtimestamp(
+            value,
+            tz=timezone.utc,
+        ).strftime(
+            "%Y-%m-%d %H:%M:%S UTC"
+        )
+
+    except (TypeError, ValueError, OSError):
+        return str(timestamp)
+
+
+def safe_folder_name(question_number, title):
+    number = str(question_number).zfill(4)
+
+    slug = re.sub(
+        r"[^a-z0-9]+",
+        "-",
+        title.lower(),
+    ).strip("-")
+
+    return f"{number}-{slug}"
 
 
 # ============================================================
@@ -659,7 +889,9 @@ def create_readme(problem, submissions):
     )
     lines.append("")
 
-    lines.append(f"**Difficulty:** {problem['difficulty']}")
+    lines.append(
+        f"**Difficulty:** {problem['difficulty']}"
+    )
     lines.append("")
 
     lines.append(
@@ -667,10 +899,6 @@ def create_readme(problem, submissions):
         f"https://leetcode.com/problems/{problem['slug']}/"
     )
     lines.append("")
-
-    # --------------------------------------------------------
-    # Problem Description
-    # --------------------------------------------------------
 
     lines.append("## Problem Description")
     lines.append("")
@@ -688,10 +916,6 @@ def create_readme(problem, submissions):
 
     lines.append("")
 
-    # --------------------------------------------------------
-    # Submission History
-    # --------------------------------------------------------
-
     lines.append("## Submission History")
     lines.append("")
 
@@ -702,11 +926,17 @@ def create_readme(problem, submissions):
         "|---:|---:|---|---|---|---|---|---|"
     )
 
-    for index, item in enumerate(submissions, start=1):
+    for index, item in enumerate(
+        submissions,
+        start=1,
+    ):
         submission = item["submission"]
         details = item.get("details", {})
 
-        submission_id = submission.get("id", "Unknown")
+        submission_id = submission.get(
+            "id",
+            "Unknown",
+        )
 
         status = (
             submission.get("statusDisplay")
@@ -740,7 +970,8 @@ def create_readme(problem, submissions):
         extension = get_extension(language)
 
         code_file = (
-            f"submissions/submission-{index:03d}{extension}"
+            f"submissions/"
+            f"submission-{index:03d}{extension}"
         )
 
         lines.append(
@@ -752,10 +983,6 @@ def create_readme(problem, submissions):
 
     lines.append("")
 
-    # --------------------------------------------------------
-    # Repository structure
-    # --------------------------------------------------------
-
     lines.append("## Repository Structure")
     lines.append("")
     lines.append("```text")
@@ -763,7 +990,10 @@ def create_readme(problem, submissions):
     lines.append("├── README.md")
     lines.append("└── submissions/")
 
-    for index, item in enumerate(submissions, start=1):
+    for index, item in enumerate(
+        submissions,
+        start=1,
+    ):
         submission = item["submission"]
         details = item.get("details", {})
 
@@ -796,13 +1026,18 @@ def archive_problem(question_number):
     # Problem
     # --------------------------------------------------------
 
-    problem = get_problem_by_number(question_number)
+    problem = get_problem_by_number(
+        question_number
+    )
 
     print(
         f"Found: {problem['question_number']}. "
         f"{problem['title']}"
     )
-    print(f"Difficulty: {problem['difficulty']}")
+
+    print(
+        f"Difficulty: {problem['difficulty']}"
+    )
 
     question_details = get_question_details(
         problem["slug"]
@@ -842,20 +1077,26 @@ def archive_problem(question_number):
     # --------------------------------------------------------
 
     cache = load_cache()
-    cached = cache.setdefault("submissions", {})
+
+    cached_submissions = cache.setdefault(
+        "submissions",
+        {},
+    )
 
     folder = safe_folder_name(
         problem["question_number"],
         problem["title"],
     )
 
-    print(f"\nGitHub folder: {folder}")
+    print(
+        f"\nGitHub folder: {folder}"
+    )
 
     # --------------------------------------------------------
-    # Fetch details for every submission
+    # Fetch details and generate AI explanation
     # --------------------------------------------------------
 
-    submission_records = []
+    records = []
 
     for position, submission in enumerate(
         submissions,
@@ -873,31 +1114,92 @@ def archive_problem(question_number):
             f"Submission {submission_id}"
         )
 
-        cached_entry = cached.get(submission_id)
+        cached_entry = cached_submissions.get(
+            submission_id
+        )
+
+        # ----------------------------------------------------
+        # Existing cached submission
+        # ----------------------------------------------------
 
         if cached_entry:
-            print("  Already archived. Using cached details.")
+            print(
+                "  Already processed."
+            )
 
             details = cached_entry.get(
                 "details",
                 {},
             )
 
-            submission_records.append(
+            explanation = cached_entry.get(
+                "ai_explanation",
+                "",
+            )
+
+            # If an older cache does not contain an AI
+            # explanation, generate it now.
+            if not explanation and details.get("code"):
+                print(
+                    "  Generating missing Gemini explanation..."
+                )
+
+                try:
+                    explanation = generate_ai_explanation(
+                        problem,
+                        submission,
+                        details,
+                    )
+
+                    cached_entry[
+                        "ai_explanation"
+                    ] = explanation
+
+                    save_cache(cache)
+
+                    print(
+                        "  ✓ Explanation generated."
+                    )
+
+                except Exception as error:
+                    print(
+                        f"  WARNING: Gemini failed: {error}"
+                    )
+
+                    explanation = (
+                        "INTUITION\n"
+                        "Gemini explanation was not available.\n\n"
+                        "APPROACH\n"
+                        "See the submitted code below.\n\n"
+                        "WHY IT WORKS\n"
+                        "See the submitted code and problem description.\n\n"
+                        "COMPLEXITY\n"
+                        "Not available."
+                    )
+
+            records.append(
                 {
                     "submission": submission,
                     "details": details,
+                    "explanation": explanation,
                 }
             )
 
             continue
 
-        print("  Fetching submission code...")
+        # ----------------------------------------------------
+        # New submission
+        # ----------------------------------------------------
+
+        print(
+            "  Fetching actual submitted code..."
+        )
 
         try:
             details = get_submission_details(
                 submission_id
             )
+
         except Exception as error:
             print(
                 f"  ERROR fetching submission "
@@ -909,8 +1211,7 @@ def archive_problem(question_number):
 
         if code is None:
             print(
-                "  WARNING: No source code returned. "
-                "Skipping this submission."
+                "  WARNING: No source code returned."
             )
             continue
 
@@ -926,23 +1227,75 @@ def archive_problem(question_number):
             or "Unknown"
         )
 
-        print(f"  Language: {language}")
-        print(f"  Status: {status}")
+        print(
+            f"  Language: {language}"
+        )
 
-        # The filename is based on chronological order later.
-        # For now store the record.
-        submission_records.append(
+        print(
+            f"  Status: {status}"
+        )
+
+        # ----------------------------------------------------
+        # Gemini
+        # ----------------------------------------------------
+
+        print(
+            "  Generating intuition with Gemini..."
+        )
+
+        try:
+            explanation = generate_ai_explanation(
+                problem,
+                submission,
+                details,
+            )
+
+            print(
+                "  ✓ Gemini explanation generated."
+            )
+
+        except Exception as error:
+            print(
+                f"  WARNING: Gemini failed: {error}"
+            )
+
+            explanation = (
+                "INTUITION\n"
+                "Gemini explanation was not available.\n\n"
+                "APPROACH\n"
+                "See the submitted code below.\n\n"
+                "WHY IT WORKS\n"
+                "See the submitted code and problem description.\n\n"
+                "COMPLEXITY\n"
+                "Not available."
+            )
+
+        records.append(
             {
                 "submission": submission,
                 "details": details,
+                "explanation": explanation,
             }
         )
 
-        cached[submission_id] = {
-            "question_number": problem["question_number"],
-            "question_slug": problem["slug"],
-            "title": problem["title"],
+        # ----------------------------------------------------
+        # Save cache
+        # ----------------------------------------------------
+
+        cached_submissions[
+            submission_id
+        ] = {
+            "question_number": problem[
+                "question_number"
+            ],
+            "question_slug": problem[
+                "slug"
+            ],
+            "title": problem[
+                "title"
+            ],
             "details": details,
+            "ai_explanation": explanation,
             "archived_at": datetime.now(
                 timezone.utc
             ).isoformat(),
@@ -950,37 +1303,47 @@ def archive_problem(question_number):
 
         save_cache(cache)
 
-    if not submission_records:
-        print("\nNo submission source code could be retrieved.")
+    if not records:
+        print(
+            "\nNo submission code could be retrieved."
+        )
         return
 
     # --------------------------------------------------------
-    # Sort submissions oldest -> newest so numbering remains
-    # stable.
+    # Stable ordering: oldest → newest
     # --------------------------------------------------------
 
-    submission_records.sort(
+    records.sort(
         key=lambda item: int(
             item["details"].get(
                 "timestamp",
-                item["submission"].get("timestamp", 0),
+                item["submission"].get(
+                    "timestamp",
+                    0,
+                ),
             )
             or 0
         )
     )
 
     # --------------------------------------------------------
-    # Upload all missing submission files
+    # Upload submission files
     # --------------------------------------------------------
 
-    print("\nChecking GitHub files...")
+    print(
+        "\nUploading submissions to GitHub..."
+    )
 
     for index, item in enumerate(
-        submission_records,
+        records,
         start=1,
     ):
         submission = item["submission"]
         details = item["details"]
+        explanation = item.get(
+            "explanation",
+            "",
+        )
 
         submission_id = str(
             submission.get("id")
@@ -992,21 +1355,24 @@ def archive_problem(question_number):
             or "unknown"
         )
 
-        extension = get_extension(language)
+        extension = get_extension(
+            language
+        )
 
         filename = (
-            f"submission-{index:03d}{extension}"
+            f"submission-{index:03d}"
+            f"{extension}"
         )
 
         github_path = (
             f"{folder}/submissions/{filename}"
         )
 
-        # Record the final path in cache.
-        if submission_id in cached:
-            cached[submission_id][
-                "github_path"
-            ] = github_path
+        file_content = create_submission_file(
+            submission,
+            details,
+            explanation,
+        )
 
         existing = github_get_file(
             github_path
@@ -1014,17 +1380,13 @@ def archive_problem(question_number):
 
         if existing:
             print(
-                f"  ✓ Exists: {github_path}"
+                f"  ✓ Already exists: "
+                f"{github_path}"
             )
             continue
 
         print(
             f"  Uploading: {github_path}"
-        )
-
-        file_content = create_submission_file(
-            submission,
-            details,
         )
 
         github_create_or_update_file(
@@ -1037,19 +1399,21 @@ def archive_problem(question_number):
             ),
         )
 
-        print("  ✓ Uploaded.")
-
-    save_cache(cache)
+        print(
+            "  ✓ Uploaded."
+        )
 
     # --------------------------------------------------------
     # README
     # --------------------------------------------------------
 
-    print("\nUpdating README...")
+    print(
+        "\nUpdating README..."
+    )
 
     readme_content = create_readme(
         problem,
-        submission_records,
+        records,
     )
 
     github_create_or_update_file(
@@ -1072,8 +1436,7 @@ def archive_problem(question_number):
         f"Submissions found: {len(submissions)}"
     )
     print(
-        f"Submissions processed: "
-        f"{len(submission_records)}"
+        f"Submissions processed: {len(records)}"
     )
     print(
         f"GitHub folder: {folder}"
@@ -1088,33 +1451,45 @@ def archive_problem(question_number):
 def main():
     if len(sys.argv) != 2:
         print("\nUsage:")
-        print("  python leetcode_to_github.py <problem_number>")
+        print(
+            "  python leetcode_to_github.py <problem_number>"
+        )
         print("\nExample:")
-        print("  python leetcode_to_github.py 1")
+        print(
+            "  python leetcode_to_github.py 2"
+        )
         sys.exit(1)
 
     question_number = sys.argv[1].strip()
 
     if not question_number.isdigit():
-        print("ERROR: Problem number must be numeric.")
+        print(
+            "ERROR: Problem number must be numeric."
+        )
         sys.exit(1)
 
     try:
         archive_problem(question_number)
 
     except requests.HTTPError as error:
-        print(f"\nHTTP ERROR: {error}")
+        print(
+            f"\nHTTP ERROR: {error}"
+        )
 
         if error.response is not None:
             try:
-                print(error.response.text[:3000])
+                print(
+                    error.response.text[:3000]
+                )
             except Exception:
                 pass
 
         sys.exit(1)
 
     except Exception as error:
-        print(f"\nERROR: {error}")
+        print(
+            f"\nERROR: {error}"
+        )
         sys.exit(1)
 
 
