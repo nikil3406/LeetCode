@@ -62,6 +62,7 @@ Example 3:
 | 1 | 1771635767 | Runtime Error | cpp | N/A | N/A | 2025-09-15 13:59:32 UTC | [Code](submissions/submission-001.cpp) |
 | 2 | 1771643610 | Accepted | cpp | 0 ms | 8.6 MB | 2025-09-15 14:07:03 UTC | [Code](submissions/submission-002.cpp) |
 | 3 | 2183553926 | Wrong Answer | java | N/A | N/A | 2026-10-28 03:08:40 UTC | [Code](submissions/submission-003.java) |
+| 4 | 2183554822 | Accepted | java | 1 ms | 41.9 MB | 2026-10-28 03:10:43 UTC | [Code](submissions/submission-004.java) |
 
 ## Repository Structure
 
@@ -72,4 +73,5 @@ Example 3:
     └── submission-001.cpp
     └── submission-002.cpp
     └── submission-003.java
+    └── submission-004.java
 ```
