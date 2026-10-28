@@ -65,6 +65,8 @@ Example 3:
 | # | Submission ID | Status | Language | Runtime | Memory | Submitted | Code |
 |---:|---:|---|---|---|---|---|---|
 | 1 | 1925092769 | Accepted | java | 1 ms | 46.7 MB | 2026-02-20 06:26:57 UTC | [Code](submissions/submission-001.java) |
+| 2 | 2183542593 | Accepted | java | 2 ms | 46.2 MB | 2026-10-28 02:41:24 UTC | [Code](submissions/submission-002.java) |
+| 3 | 2183545246 | Accepted | java | 3 ms | 45.8 MB | 2026-10-28 02:48:09 UTC | [Code](submissions/submission-003.java) |
 
 ## Repository Structure
 
@@ -73,4 +75,6 @@ Example 3:
 ├── README.md
 └── submissions/
     └── submission-001.java
+    └── submission-002.java
+    └── submission-003.java
 ```
