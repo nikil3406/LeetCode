@@ -48,6 +48,7 @@ Example 2:
 | 1 | 1772999089 | Accepted | cpp | 0 ms | 27.4 MB | 2025-09-16 17:02:09 UTC | [Code](submissions/submission-001.cpp) |
 | 2 | 2184361883 | Accepted | java | 1 ms | 47.6 MB | 2026-10-29 02:31:06 UTC | [Code](submissions/submission-002.java) |
 | 3 | 2184362213 | Accepted | java | 1 ms | 47.8 MB | 2026-10-29 02:31:58 UTC | [Code](submissions/submission-003.java) |
+| 4 | 2184362739 | Accepted | java | 1 ms | 47.8 MB | 2026-10-29 02:33:26 UTC | [Code](submissions/submission-004.java) |
 
 ## Repository Structure
 
@@ -58,4 +59,5 @@ Example 2:
     └── submission-001.cpp
     └── submission-002.java
     └── submission-003.java
+    └── submission-004.java
 ```
