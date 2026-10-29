@@ -69,6 +69,7 @@ Since an empty string reads the same forward and backward, it is a palindrome.
 | 2 | 1773033479 | Accepted | cpp | 0 ms | 9.8 MB | 2025-09-16 17:27:42 UTC | [Code](submissions/submission-002.cpp) |
 | 3 | 2184365225 | Wrong Answer | java | N/A | N/A | 2026-10-29 02:40:44 UTC | [Code](submissions/submission-003.java) |
 | 4 | 2184365768 | Accepted | java | 4 ms | 43.7 MB | 2026-10-29 02:42:19 UTC | [Code](submissions/submission-004.java) |
+| 5 | 2184366053 | Accepted | java | 3 ms | 43.9 MB | 2026-10-29 02:43:09 UTC | [Code](submissions/submission-005.java) |
 
 ## Repository Structure
 
@@ -80,4 +81,5 @@ Since an empty string reads the same forward and backward, it is a palindrome.
     └── submission-002.cpp
     └── submission-003.java
     └── submission-004.java
+    └── submission-005.java
 ```
